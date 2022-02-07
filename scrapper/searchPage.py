@@ -1,5 +1,4 @@
 # Base python package
-from calendar import c
 import logging
 
 # Project specific package
@@ -7,6 +6,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import WebDriverException
+from selenium.webdriver.remote.webelement import WebElement
 
 # local module and package
 from enums import *
@@ -205,11 +205,100 @@ class DonationScrapper(ChromeBasePage):
         pass
 
     def parsePage(self):
-        header = ["firstname", "lastname", "amout", "nbr_of_payments",
+        header = ["firstname", "lastname", "amount", "nbr_of_payments",
                   "political_entity", "fiscal_year", "postalCode", "city"]
-        page = []
+        pageData = []
+        table = self.driver.find_element(By.CLASS_NAME, 'tableau')
+        tbody = table.find_element(By.TAG_NAME, 'tbody')
+        rows = tbody.find_elements(By.TAG_NAME, 'tr')
+        for row in rows:
+            rowData = row.find_elements(By.TAG_NAME, 'td')
+            pageData.append(self.parseRow(rowData))
 
-        pass
+    def parseRow(self, td: list[WebElement]) -> list:
+        firstName = self.parseFirstName(td[0].text)
+        lastName = self.parseLastName(td[0].text)
+        amout = self.parseAmount(td[1].text)
+        nbr_v = self.parseNbrPayments(td[2].text)
+        p_entity = td[3].text
+        year = self.parseYear(td[4].text)
+        try:
+            href = td[0].find_element(By.TAG_NAME, 'a').get_attribute('href')
+        except Exception:
+            logging.error("can't parse href from td")
+            href = ''
+        postalCode = self.parsePostalCode(href)
+        city = self.parseCity(href)
+
+        return[firstName, lastName, amout, nbr_v,
+               p_entity, year, postalCode, city]
+
+    def parseFirstName(self, fullName: str):
+        firstName = ""
+        try:
+            firstName = fullName.split(',')[1].strip()
+        except Exception:
+            logging.error(f"can't parse firstName from : {fullName}")
+
+        return firstName
+
+    def parseLastName(self, fullName: str):
+        lastName = ""
+        try:
+            lastName = fullName.split(',')[0].strip()
+        except Exception:
+            logging.error(f"can't parse lastName from : {fullName}")
+
+        return lastName
+
+    def parseAmount(self, amount_txt: str) -> float:
+        amount = 0
+        try:
+            amount = float(amount_txt.split('$')[0].strip().replace(',', '.'))
+        except Exception as err:
+            logging.error(f"can't parse {amount_txt} to float format : {err}")
+            amount = -1.0
+        return amount
+
+    def parseNbrPayments(self, nbr_txt: str) -> int:
+        payments = 0
+        try:
+            payments = int(nbr_txt)
+        except Exception as err:
+            logging.error(f"can't parse {nbr_txt} to int : {err}")
+            payments = -1
+
+        return payments
+
+    def parseYear(self, year_txt: str) -> int:
+        year = -1
+        try:
+            year = int(year_txt)
+        except Exception as err:
+            logging.error(f"can't parse {year_txt} to int : {err}")
+            year = -1
+        return year
+
+    def parsePostalCode(self, href: str):
+        pc = ""
+        try:
+            # ?idrech=202553&an=2020&fkent=00079&v=Sainte-Marthe-Sur-Le-Lac&cp=J0N1P0'
+            args = href.split('?')[-1]
+            pc = args.split('&')[-1].split('=')[-1]  # cp=J0N1P0
+        except Exception:
+            logging.error(f"can't parse postal code of : {href}")
+        return pc
+
+    def parseCity(self, href: str):
+        city = ""
+        try:
+            # ?idrech=202553&an=2020&fkent=00079&v=Sainte-Marthe-Sur-Le-Lac&cp=J0N1P0'
+            args = href.split('?')[-1]
+            # v=Sainte-Marthe-Sur-Le-Lac
+            city = args.split('&')[-2].split('=')[-1]
+        except Exception:
+            logging.error(f"can't parse city of : {href}")
+        return city
 
 
 if __name__ == "__main__":
@@ -224,6 +313,7 @@ if __name__ == "__main__":
     scrapper = DonationScrapper()
     scrapper.query(years=years, parties=parties)
     scrapper.parsePage()
+    print('page done')
 
     # searchPage = SearchPageQcDonator()
     # searchPage.select_financial_years(years=years)
