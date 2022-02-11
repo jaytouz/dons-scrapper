@@ -1,5 +1,7 @@
 # Base python package
 import logging
+import os
+import re
 
 # Project specific package
 from selenium import webdriver
@@ -7,6 +9,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.remote.webelement import WebElement
+import numpy as np
+import pandas as pd
 
 # local module and package
 from enums import *
@@ -172,17 +176,26 @@ class SearchPageQcDonator(ChromeBasePage):
             boutton).click(boutton).perform()
 
 
-class ResultPage():
-    def __init__(self):
-        pass
-
-
 class DonationScrapper(ChromeBasePage):
-
-    def __init__(self, output="../output/data.csv"):
+    def __init__(self, output="../output/"):
         super().__init__()
         self.searchPage = SearchPageQcDonator()
-        self.resultPage = ResultPage()
+        self.numberOfPage = None
+        self.currentPage = 1
+        self.outputPath = output
+        self.header = ["index", "firstName", "lastName", "amount",
+                       "nbrPayment", "entity", "fiscYear", "postalCode", "city"]
+        self._counter = -1
+
+    def getNumberOfPage(self):
+        # self.driver.find_elements(By.TAG_NAME, "table")
+        return int(scrapper.driver.find_elements(
+            By.PARTIAL_LINK_TEXT, 'Fin >>')[0].get_attribute('href').split('page=')[-1])
+
+    @property
+    def counter(self):
+        self._counter += 1
+        return self._counter
 
     def query(self, years=None, parties=None, members=None, canditates=None, races=None, leaders=None):
         if years is not None:
@@ -201,21 +214,73 @@ class DonationScrapper(ChromeBasePage):
 
         self.searchPage.click_on_research()
 
+    def savePage(self, page):
+        if len(page) == 101:
+            # fixing bug that last page result is same as first of next page.
+            page = page[:100]
+        df = pd.DataFrame(page, columns=self.header)
+        df.to_csv(self.outputPath + "data.csv",
+                  index=False, header=False, mode="a")
+        df = None
+
+    def createOutputFile(self):
+        if(not os.path.exists(self.outputPath)):
+            os.makedirs(self.outputPath)
+
+    def loadNextPage(self):
+        """
+         Call the driver to load the url with the next page value
+
+        [extended_summary]
+        """
+        self.currentPage += 1
+        print(f"loading {self.currentPage} out of {self.numberOfPage}")
+        self.driver.get(SearchPageQcDonator.URL + f"?page={self.currentPage}")
+
     def parseResults(self):
-        pass
+        """
+         Parse all page from the search results.
+
+        BUG : The last result of everypage is the same as the first of the next page.
+        """
+        self.numberOfPage = self.getNumberOfPage()
+        self.createOutputFile()
+        while (self.currentPage < self.numberOfPage):
+            page = self.parsePage()
+            print(page[0], len(page))
+            self.savePage(page)
+            self.loadNextPage()
+
+        page = self.parsePage()
+        print(page[0], len(page))
+        self.savePage(page)
 
     def parsePage(self):
-        header = ["firstname", "lastname", "amount", "nbr_of_payments",
-                  "political_entity", "fiscal_year", "postalCode", "city"]
+        """
+        Read all the results and create a (100,M) list of list.
+        Where M is the number of attributes.
+
+        [extended_summary]
+        """
+
         pageData = []
         table = self.driver.find_element(By.CLASS_NAME, 'tableau')
         tbody = table.find_element(By.TAG_NAME, 'tbody')
         rows = tbody.find_elements(By.TAG_NAME, 'tr')
-        for row in rows:
-            rowData = row.find_elements(By.TAG_NAME, 'td')
-            pageData.append(self.parseRow(rowData))
+        if (len(rows) == 100):
+            for row in rows:
+                rowData = row.find_elements(By.TAG_NAME, 'td')
+                pageData.append(self.parseRow(rowData))
+        else:
+            # skipping first since its same as last element of the last page.
+            for i in range(1, len(rows)):
+                rowData = rows[i].find_elements(By.TAG_NAME, 'td')
+                pageData.append(self.parseRow(rowData))
+
+        return pageData
 
     def parseRow(self, td: list[WebElement]) -> list:
+        index = self.counter
         firstName = self.parseFirstName(td[0].text)
         lastName = self.parseLastName(td[0].text)
         amout = self.parseAmount(td[1].text)
@@ -230,7 +295,7 @@ class DonationScrapper(ChromeBasePage):
         postalCode = self.parsePostalCode(href)
         city = self.parseCity(href)
 
-        return[firstName, lastName, amout, nbr_v,
+        return[index, firstName, lastName, amout, nbr_v,
                p_entity, year, postalCode, city]
 
     def parseFirstName(self, fullName: str):
@@ -296,14 +361,34 @@ class DonationScrapper(ChromeBasePage):
             args = href.split('?')[-1]
             # v=Sainte-Marthe-Sur-Le-Lac
             city = args.split('&')[-2].split('=')[-1]
+            city = self.cleanCityStr(city)
         except Exception:
             logging.error(f"can't parse city of : {href}")
+        return city
+
+    def cleanCityStr(self, city: str):
+        def replace_unicode(text):
+            replacement = {"%E9": "é", "%C9": "é", "%E8": "è",
+                           "_": " ", "%2C": ",",
+                           "%C7": "ç", "%E7": "ç", "%27": "'", "+": "-", "%EE": "î", "%CE": "î",
+                           "%F4": "ô", "%BF": "'", "%C0": "à", "%E0": "à", "%E2": "â", "%EA": "ê", "%EB": "ë"
+                           }
+            for k, v in zip(replacement.keys(), replacement.values()):
+                text = text.replace(k, v)
+            return text
+
+        def remove_duplicate_dash(c): return re.sub("[-]{2,}", '-', c)
+        def capitalizeFirst(c): return c.lower()
+
+        city = replace_unicode(city)
+        city = remove_duplicate_dash(city)
+        city = capitalizeFirst(city)
         return city
 
 
 if __name__ == "__main__":
 
-    years = ["2020"]
+    years = ["2019", "2020", "2021", "2022"]
     parties = [PoliticalPartiesValues.PCQ_CPQ]
     members = [IndependantMembersValues.CATHERINE_FOURNIER]
     candidates = [IndependantCandidatesValues.CLAUDE_SURPRENANT]
@@ -312,24 +397,8 @@ if __name__ == "__main__":
 
     scrapper = DonationScrapper()
     scrapper.query(years=years, parties=parties)
-    scrapper.parsePage()
-    print('page done')
+    scrapper.parseResults()
 
-    # searchPage = SearchPageQcDonator()
-    # searchPage.select_financial_years(years=years)
-    # searchPage.select_political_parties(
-    #     parties=parties)
-    # searchPage.select_independant_members(members=members)
-    # searchPage.select_independant_candidates(candidates=candidates)
-    # searchPage.select_leadership_race(races=races, leadears=leaders)
-    # input()
-    # searchPage.click_on_research()
-    input()
+    input("PARSING DONE...")
     del(scrapper)
-    input()
-    # replacement = {"=E9": "é", "=E8": "è", "=C3=A9": "é",
-    #                    "=C3=A8": "è", "=C3=A0": "à", "_": " ",
-    #                    "=C7": "ç"}
-
-    # decode ceci et la vie sera belle
-    s = "?idrech=225962&an=2021&fkent=00110&v=Montr%E9al&cp=H8N2Z5"
+    input("QUITTING...")
