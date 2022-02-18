@@ -1,15 +1,16 @@
 # Base python package
+import glob
 import logging
 import os
 import re
-import time
+
 
 # Scrapping tools
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import WebDriverException
-from selenium.webdriver.remote.webelement import WebElement
+
 from bs4 import BeautifulSoup
 # Project specific package
 import numpy as np
@@ -29,8 +30,14 @@ class ChromeBasePage(object):
     Could work for other driver, but was not tested.
     """
 
-    def __init__(self, driver: webdriver.Chrome = webdriver.Chrome()):
-        self.driver = driver
+    def __init__(self):
+        print("stating web Driver")
+        options = webdriver.ChromeOptions()
+        options.headless = True
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-gpu')
+        self.driver = webdriver.Chrome(options=options)
+        self.driver.implicitly_wait(2)
 
     def __del__(self):
         self.driver.close()
@@ -44,6 +51,9 @@ class SearchPageQcDonator(ChromeBasePage):
     def __init__(self):
         super().__init__()
         self.driver.get(SearchPageQcDonator.URL)
+        self.numberOfPage = None
+        self.currentPage = 1
+        self._counter = -1
 
     def check_entity(self, entity_id: str):
         """Fetch entity webElement, if unchecked click on it"""
@@ -178,22 +188,14 @@ class SearchPageQcDonator(ChromeBasePage):
         ActionChains(self.driver).move_to_element(
             boutton).click(boutton).perform()
 
-
-class DonationScrapper(ChromeBasePage):
-    def __init__(self, output="../output/"):
-        super().__init__()
-        self.searchPage = SearchPageQcDonator()
-        self.numberOfPage = None
-        self.currentPage = 1
-        self.outputPath = output
-        self.header = ["index", "firstName", "lastName", "amount",
-                       "nbrPayment", "entity", "fiscYear", "postalCode", "city"]
-        self._counter = -1
-
     def getNumberOfPage(self):
-        # self.driver.find_elements(By.TAG_NAME, "table")
-        return int(scrapper.driver.find_elements(
-            By.PARTIAL_LINK_TEXT, 'Fin >>')[0].get_attribute('href').split('page=')[-1])
+        maxPage = 1
+        try:
+            maxPage = int(self.driver.find_elements(
+                By.PARTIAL_LINK_TEXT, 'Fin >>')[0].get_attribute('href').split('page=')[-1])
+        except Exception:
+            pass
+        return maxPage
 
     @property
     def counter(self):
@@ -202,33 +204,20 @@ class DonationScrapper(ChromeBasePage):
 
     def query(self, years=None, parties=None, members=None, canditates=None, races=None, leaders=None):
         if years is not None:
-            self.searchPage.select_financial_years(years)
+            self.select_financial_years(years)
         if parties is not None:
-            self.searchPage.select_political_parties(parties)
+            self.select_political_parties(parties)
         if members is not None:
-            self.searchPage.select_independant_members(members)
+            self.select_independant_members(members)
         if canditates is not None:
-            self.searchPage.select_independant_candidates(canditates)
+            self.select_independant_candidates(canditates)
         if races is not None or leaders is not None:
             races = [] if races is None else races
             leaders = [] if leaders is None else leaders
-            self.searchPage.select_leadership_race(
+            self.select_leadership_race(
                 races=races, leadears=leaders)
 
-        self.searchPage.click_on_research()
-
-    def savePage(self, page):
-        if len(page) == 101:
-            # fixing bug that last page result is same as first of next page.
-            page = page[:100]
-        df = pd.DataFrame(page, columns=self.header)
-        df.to_csv(self.outputPath + "data.csv",
-                  index=False, header=False, mode="a")
-        df = None
-
-    def createOutputFile(self):
-        if(not os.path.exists(self.outputPath)):
-            os.makedirs(self.outputPath)
+        self.click_on_research()
 
     def loadNextPage(self):
         """
@@ -245,11 +234,8 @@ class DonationScrapper(ChromeBasePage):
          Parse all page from the search results.
         """
         self.numberOfPage = self.getNumberOfPage()
-        self.createOutputFile()
-        while (self.currentPage < self.numberOfPage):
+        while (self.currentPage <= self.numberOfPage):
             page = self.parsePage()
-            print(page[0], len(page))
-            self.savePage(page)
             self.loadNextPage()
 
         page = self.parsePage()
@@ -265,106 +251,162 @@ class DonationScrapper(ChromeBasePage):
         """
 
         pageData = []
-        table = self.driver.find_element(By.CLASS_NAME, 'tableau')
-        tbody = table.find_element(By.TAG_NAME, 'tbody')
-        rows = tbody.find_elements(By.TAG_NAME, 'tr')
-        if (len(rows) == 100):
-            for row in rows:
-                rowData = row.find_elements(By.TAG_NAME, 'td')
-                pageData.append(self.parseRow(rowData))
-        else:
-            # skipping first since its same as last element of the last page.
-            for i in range(1, len(rows)):
-                rowData = rows[i].find_elements(By.TAG_NAME, 'td')
-                pageData.append(self.parseRow(rowData))
 
         return pageData
 
-    def parseRow(self, td: list[WebElement]) -> list:
-        index = self.counter
-        firstName = self.parseFirstName(td[0].text)
-        lastName = self.parseLastName(td[0].text)
-        amout = self.parseAmount(td[1].text)
-        nbr_v = self.parseNbrPayments(td[2].text)
-        p_entity = td[3].text
-        year = self.parseYear(td[4].text)
-        try:
-            href = td[0].find_element(By.TAG_NAME, 'a').get_attribute('href')
-        except Exception:
-            logging.error("can't parse href from td")
-            href = ''
-        postalCode = self.parsePostalCode(href)
-        city = self.parseCity(href)
+    def getAllHtmlPage(self):
+        htmlList = []
+        self.numberOfPage = self.getNumberOfPage()
+        htmlPage = self.driver.page_source
+        htmlList.append(htmlPage)
+        while (self.currentPage < self.numberOfPage):
+            self.loadNextPage()
+            htmlPage = self.driver.page_source
+            htmlList.append(htmlPage)
+        return htmlList
 
-        return[index, firstName, lastName, amout, nbr_v,
-               p_entity, year, postalCode, city]
 
-    def parseFirstName(self, fullName: str):
+class HtmlScrapper(object):
+
+    def __init__(self, htmlContent) -> None:
+        self.soup = BeautifulSoup(htmlContent, 'html.parser')
+
+
+class DonationScrapper(HtmlScrapper):
+
+    def __init__(self, htmlContent, pageNumber) -> None:
+        super().__init__(htmlContent)
+        self.pageNumber = pageNumber  # to be used in logging if errors
+        self.data = []
+        self.header = ["firstName", "lastName", "amount",
+                       "nbrPayment", "entity", "fiscYear", "postalCode", "city"]
+
+    def extract(self):
+        rows = self.fetchTableRows()
+        if(len(rows) == 101):
+            # first row is same as last row of last page. Bug from the site
+            rows = rows[1:]
+
+        for row in rows:
+            rowData = self.extractRowData(row)
+            self.data.append(rowData)
+
+    def fetchTableRows(self):
+        table = self.soup.find('table', {'class': 'tableau'})
+        body = table.find('tbody')
+        rows = body.findAll('tr')
+        return rows
+
+    def extractRowData(self, row):
+        row = row.findAll('td')
+        firstName = self.parseFirstName(row)
+        LastName = self.parseLastName(row)
+        amount = self.parseAmount(row)
+        nbrVir = self.parseNbrVirement(row)
+        polEntity = self.parsePolEntity(row)
+        year = self.parseYear(row)
+        postalCode = self.parsePostalCode(row)
+        city = self.parseCity(row)
+        return [firstName, LastName, amount, nbrVir,
+                polEntity, year, postalCode, city]
+
+    def parseFirstName(self, row):
         firstName = ""
-        try:
-            firstName = fullName.split(',')[1].strip()
-        except Exception:
-            logging.error(f"can't parse firstName from : {fullName}")
-
+        if (row[0].find('a') is not None):
+            try:
+                fullName = row[0].find('a').text
+                firstName = fullName.split(',')[1].strip()
+            except Exception:
+                logging.error(
+                    f"can't parse firstName from : {row[0]}")
+        else:
+            try:
+                fullName = row[0].text
+                firstName = fullName.split(',')[1].strip()
+            except Exception:
+                logging.error(
+                    f"can't parse firstName from : {row[0]}")
         return firstName
 
-    def parseLastName(self, fullName: str):
+    def parseLastName(self, row):
         lastName = ""
-        try:
-            lastName = fullName.split(',')[0].strip()
-        except Exception:
-            logging.error(f"can't parse lastName from : {fullName}")
-
+        if (row[0].find('a') is not None):
+            try:
+                fullName = row[0].find('a').text
+                lastName = fullName.split(',')[0].strip()
+            except Exception:
+                logging.error(
+                    f"can't parse lastName from : {row[0]}")
+        else:
+            try:
+                fullName = row[0].text
+                lastName = fullName.split(',')[0].strip()
+            except Exception:
+                logging.error(
+                    f"can't parse lastName from : {row[0]}")
         return lastName
 
-    def parseAmount(self, amount_txt: str) -> float:
+    def parseAmount(self, row):
         amount = 0
         try:
-            amount = float(amount_txt.split('$')[0].strip().replace(',', '.'))
+            amount = float(row[1]
+                           .text
+                           .replace(u'\xa0', '')
+                           .split('$')[0]
+                           .strip()
+                           .replace(',', '.')
+                           )
         except Exception as err:
-            logging.error(f"can't parse {amount_txt} to float format : {err}")
+            logging.error(f"can't parse {row[1]} to float format : {err}")
             amount = -1.0
         return amount
 
-    def parseNbrPayments(self, nbr_txt: str) -> int:
+    def parseNbrVirement(self, row):
         payments = 0
         try:
-            payments = int(nbr_txt)
+            payments = int(row[2].text)
         except Exception as err:
-            logging.error(f"can't parse {nbr_txt} to int : {err}")
+            logging.error(f"can't parse {row[2].text} to int : {err}")
             payments = -1
 
         return payments
 
-    def parseYear(self, year_txt: str) -> int:
+    def parsePolEntity(self, row):
+        return row[3].text
+
+    def parseYear(self, row):
         year = -1
         try:
-            year = int(year_txt)
+            year = int(row[4].text)
         except Exception as err:
-            logging.error(f"can't parse {year_txt} to int : {err}")
+            logging.error(f"can't parse {row[4]} to int : {err}")
             year = -1
         return year
 
-    def parsePostalCode(self, href: str):
+    def parsePostalCode(self, row):
         pc = ""
-        try:
-            # ?idrech=202553&an=2020&fkent=00079&v=Sainte-Marthe-Sur-Le-Lac&cp=J0N1P0'
-            args = href.split('?')[-1]
-            pc = args.split('&')[-1].split('=')[-1]  # cp=J0N1P0
-        except Exception:
-            logging.error(f"can't parse postal code of : {href}")
+        if (row[0].find('a') is not None):
+            try:
+                # ?idrech=202553&an=2020&fkent=00079&v=Sainte-Marthe-Sur-Le-Lac&cp=J0N1P0'
+                href = row[0].find('a').attrs['href']
+                args = href.split('?')[-1]
+                pc = args.split('&')[-1].split('=')[-1]  # cp=J0N1P0
+            except Exception:
+                logging.error(f"can't parse postal code of : {href}")
         return pc
 
-    def parseCity(self, href: str):
+    def parseCity(self, row):
         city = ""
-        try:
-            # ?idrech=202553&an=2020&fkent=00079&v=Sainte-Marthe-Sur-Le-Lac&cp=J0N1P0'
-            args = href.split('?')[-1]
-            # v=Sainte-Marthe-Sur-Le-Lac
-            city = args.split('&')[-2].split('=')[-1]
-            city = self.cleanCityStr(city)
-        except Exception:
-            logging.error(f"can't parse city of : {href}")
+        if (row[0].find('a') is not None):
+            try:
+                # ?idrech=202553&an=2020&fkent=00079&v=Sainte-Marthe-Sur-Le-Lac&cp=J0N1P0'
+                href = row[0].find('a').attrs['href']
+                args = href.split('?')[-1]
+                # v=Sainte-Marthe-Sur-Le-Lac
+                city = args.split('&')[-2].split('=')[-1]
+                city = self.cleanCityStr(city)
+            except Exception:
+                logging.error(f"can't parse city of : {href}")
         return city
 
     def cleanCityStr(self, city: str):
@@ -386,25 +428,54 @@ class DonationScrapper(ChromeBasePage):
         city = capitalizeFirst(city)
         return city
 
+    def savePage(self, outputPath):
+        path = outputPath + f"data_p{self.pageNumber}.csv"
+        df = pd.DataFrame(self.data, columns=self.header)
+        self.createOutputFile(outputPath)
+        df.to_csv(path)
+
+    def createOutputFile(self, outputPath):
+        if(not os.path.exists(outputPath)):
+            os.makedirs(outputPath)
+
+    @staticmethod
+    def concatOutputCsv(outputPath):
+        paths = glob.glob(outputPath + "data_p*.csv")
+        dfs = []
+        for path in paths:
+            df = pd.read_csv(path, index_col=0)
+            dfs.append(df)
+
+        all_df = pd.concat(dfs)
+        all_df.to_csv(outputPath + "data.csv", index=False)
+        for path in paths:
+            if (os.path.exists(path)):
+                os.remove(path)
+
 
 if __name__ == "__main__":
 
-    years = ["2019", "2020", "2021", "2022"]
-    parties = [PoliticalPartiesValues.PCQ_CPQ]
+    years = []
+
+    parties = []
     members = [IndependantMembersValues.CATHERINE_FOURNIER]
     candidates = [IndependantCandidatesValues.CLAUDE_SURPRENANT]
     races = [LeadershipRaceValues.PCQ_2021]
     leaders = [LeadershipCandidateValues.ERIC_DUHAIME]
 
-    scrapper = DonationScrapper()
+    scrapper = SearchPageQcDonator()
     scrapper.query(years=years, parties=parties)
     # scrapper.parseResults()
-    time.sleep(2)
+    outputPath = "../output/all/"
 
-    html = scrapper.driver.page_source
-    scrapper.loadNextPage()
-    time.sleep(2)
-    html2 = scrapper.driver.page_source
+    htmls = scrapper.getAllHtmlPage()
+
+    for i, htmlPage in enumerate(htmls):
+        pageScrapper = DonationScrapper(htmlPage, i+1)
+        pageScrapper.extract()
+        pageScrapper.savePage(outputPath)
+
+    DonationScrapper.concatOutputCsv(outputPath)
 
     input("PARSING DONE...")
     del(scrapper)
