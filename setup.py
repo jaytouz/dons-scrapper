@@ -10,5 +10,6 @@ setup(
     package_dir={'': 'scrapper'},
     install_requires=[
         "selenium>=4.0.0",
+        "bs4>=0.0.1",
     ]
 )
