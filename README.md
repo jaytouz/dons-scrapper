@@ -1,6 +1,6 @@
 # dons-scrapper
 
-Scrapper donation to political entities in Quebec
+Scrapper donation for political entities in Quebec
 
 # Installation
 
