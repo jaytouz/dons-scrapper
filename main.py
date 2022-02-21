@@ -1,5 +1,7 @@
 import logging
 from datetime import datetime
+import os
+
 
 # local package
 from src.runner.process import DonationScrapperRunner
