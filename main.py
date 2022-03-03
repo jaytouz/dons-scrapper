@@ -9,7 +9,7 @@ from src.scrapper.enums import PoliticalPartiesValues, LeadershipCandidateValues
 
 
 def main():
-    outputDir = "../output/fulldata/"
+    outputDir = "../output/testFixMultiAllData/"
     now = datetime.now().strftime("%Y_%m_%d_%H_%M")
     if(not os.path.exists(outputDir)):
         os.makedirs(outputDir)
@@ -17,10 +17,10 @@ def main():
                         format='%(asctime)s %(levelname)-8s %(message)s',
                         encoding='utf-8', level=logging.INFO,
                         datefmt='%Y-%m-%d %H:%M:%S')
-    runner = DonationScrapperRunner(
-        "../output/multiprocess/", years=[], parties=[])
-    runner.run()
+    runner = DonationScrapperRunner(outputDir, years=["2017", "2018", "2019", "2020", "2021", "2022"],
+                                    parties=[PoliticalPartiesValues.PLQ_QLP, PoliticalPartiesValues.PCQ_CPQ])
+    runner.run(1)
 
-
+    #["2017", "2018", "2019", "2020", "2021", "2022"]
 if __name__ == "__main__":
     main()

@@ -1,3 +1,4 @@
+from cmath import log
 import re
 import logging
 from bs4 import BeautifulSoup
@@ -207,7 +208,10 @@ class DonationParser(HtmlParser):
         """
         payments = 0
         try:
-            payments = int(row[2].text)
+            if row[2].text == 'N/D':
+                payment = pd.NA
+            else:
+                payments = int(row[2].text)
         except Exception as err:
             logging.error(f"can't parse {row} to int : {err}")
             payments = -1
@@ -230,7 +234,13 @@ class DonationParser(HtmlParser):
         str
             political entity
         """
-        return row[3].text
+        entity = ""
+        try:
+            entity = row[3].text
+        except Exception as err:
+            logging.error(
+                "Could not parse political entity for row %s", str(row))
+        return entity
 
     def parseYear(self, row: list[str]) -> int:
         """
@@ -398,7 +408,7 @@ class DonationParser(HtmlParser):
             df = pd.read_csv(path, index_col=0)
             dfs.append(df)
 
-        all_df = pd.concat(dfs, ignore_index=True)
+        all_df = pd.concat(dfs)
         all_df.to_csv(outputPath + "data.csv", index=False)
 
         if delete:
@@ -416,7 +426,7 @@ class DonationParser(HtmlParser):
 
 if __name__ == "__main__":
 
-    outputPath = "../output/multiprocesstest/"
+    outputPath = "../output/testFixMultiAllData/"
     htmls = []
     for i, htmlPage in enumerate(htmls):
         pageScrapper = DonationParser(htmlPage, i+1)

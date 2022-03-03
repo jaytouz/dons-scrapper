@@ -1,7 +1,6 @@
 # Base python package
 import logging
-import time
-
+from tqdm import tqdm
 # Scrapping tools
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -13,6 +12,7 @@ from selenium.common.exceptions import TimeoutException
 
 # local module and package
 from .enums import *
+from .expectedCondition import wait_for_number_of_rows_text, wait_for_all_tr
 
 
 class ChromeBasePage(object):
@@ -23,16 +23,15 @@ class ChromeBasePage(object):
     """
 
     def __init__(self):
-        print("stating web Driver")
         options = webdriver.ChromeOptions()
         options.add_argument("window-size=1920,1080")
         options.headless = True
 
         self.driver = webdriver.Chrome(options=options)
-        self.driver.implicitly_wait(30)
+        self.driver.implicitly_wait(10)
 
-    def __del__(self):
-        self.driver.close()
+    # def __del__(self):
+    #     self.driver.close()
 
 
 class SearchPageQcDonator(ChromeBasePage):
@@ -42,6 +41,8 @@ class SearchPageQcDonator(ChromeBasePage):
 
     def __init__(self, name):
         super().__init__()
+        print(f"stating web Driver for year : {name}")
+
         self.driver.get(SearchPageQcDonator.URL)
         self.numberOfPage = None
         self.currentPage = 1
@@ -245,6 +246,7 @@ class SearchPageQcDonator(ChromeBasePage):
         leaders : list[str], optional
             if None, parse nothing, by default None
         """
+
         if years is not None:
             self.select_financial_years(years)
         if parties is not None:
@@ -278,15 +280,49 @@ class SearchPageQcDonator(ChromeBasePage):
             logging.warning(
                 "timeout exception while loading %s for presses named : %s", str(self.currentPage), str(self.name))
 
+    def waitForRows(self):
+        numberOfRows = None
+        try:
+            driver = WebDriverWait(self.driver, 10)
+            numberOfRows = driver.until(
+                wait_for_number_of_rows_text()
+            )
+        except TimeoutException:
+            print(
+                f"WARNING : data might be missing, could not load the number of rows from page {self.currentPage} in process name : {self.name}")
+            logging.warning(
+                "timeout exception while loading text with number of rows for process named : %s and page number : %s", str(self.name), str(self.currentPage))
+
+        if numberOfRows is None:
+            raise ValueError
+
+        try:
+            driver = WebDriverWait(self.driver, 20)
+            rows = driver.until(
+                wait_for_all_tr(number=numberOfRows)
+            )
+        except TimeoutException:
+            print(
+                f"WARNING : data might be missing, could not load all rows from page {self.currentPage} in process name : {self.name}")
+            logging.warning(
+                "timeout exception while loading all rows for process named : %s and page number : %s", str(self.name), str(self.currentPage))
+
+    def getSourcePage(self):
+        self.waitForRows()
+        return self.driver.page_source
+
     def getAllHtmlPage(self):
         htmlList = []
         self.numberOfPage = self.getNumberOfPage()
-        htmlPage = self.driver.page_source
+        htmlPage = self.getSourcePage()
         htmlList.append(htmlPage)
+        pbar = tqdm(total=self.numberOfPage)
         while (self.currentPage < self.numberOfPage):
             self.loadNextPage()
-            htmlPage = self.driver.page_source
+            htmlPage = self.getSourcePage()
             htmlList.append(htmlPage)
+            pbar.update(1)
+        pbar.close()
         return htmlList
 
 
@@ -301,7 +337,7 @@ if __name__ == "__main__":
     leaders = [LeadershipCandidateValues.ERIC_DUHAIME]
 
     scrapper = SearchPageQcDonator("test")
-    scrapper.query()
+    scrapper.query(years=["2022"])
 
     htmls = scrapper.getAllHtmlPage()
 

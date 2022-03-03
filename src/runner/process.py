@@ -1,7 +1,11 @@
 import logging
+from multiprocessing.pool import ThreadPool
 import os
-from multiprocessing import Pool, cpu_count
-import time
+from multiprocessing import Pool, cpu_count, Process
+from threading import Thread
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait
+from concurrent import futures
+import math
 
 
 from ..scrapper.searchPage import SearchPageQcDonator
@@ -45,6 +49,7 @@ class DonationScrapperRunner(object):
         self._candidates = candidates
         self._races = races
         self._leaders = leaders
+        self._processes = []
 
     @property
     def years(self):
@@ -77,7 +82,18 @@ class DonationScrapperRunner(object):
     def processes(self):
         return self._processes
 
-    def run(self, poolSize: int = None):
+    def append(self, p):
+        self._processes.append(p)
+
+    def join(self):
+        for p in self.processes:
+            p.join()
+
+    def close(self):
+        for p in self.processes:
+            p.close()
+
+    def run(self, poolSize: int = None, delete=False):
         """
         run : start a pool of process where each year will be process sequentially as a seperate query.
 
@@ -90,12 +106,16 @@ class DonationScrapperRunner(object):
             poolSize = os.cpu_count() - 2
             if poolSize < 1:
                 poolSize = 1
+        if poolSize > len(self.years):
+            poolSize = len(self.years)
         logging.info(f"starting pool with {poolSize} processes...")
-        with Pool(poolSize) as pool:
-            logging.info(f"mapping on years :{self.years}")
-            pool.map(self.process_data, self.years)
+
+        with ProcessPoolExecutor(poolSize) as executor:
+            executor.map(self.process_data, self.years)
+
         logging.info("concatenating data...")
-        DonationParser.concatOutputCsv(self.outputPath, self.years)
+        DonationParser.concatOutputCsv(
+            self.outputPath, self.years, delete=delete)
         print("Done...")
 
     def process_data(self, year):
@@ -112,13 +132,13 @@ class DonationScrapperRunner(object):
         logging.info(f"starting {year}")
         scrapper = SearchPageQcDonator(year)
         logging.info(f"querying {year}")
-        print(self.parties)
         scrapper.query(years=year, parties=self.parties, members=self.members,
                        canditates=self.candidates, races=self.races, leaders=self.leaders)
 
         logging.info(f"getting all html for {year}")
 
         htmls = scrapper.getAllHtmlPage()
+        scrapper.driver.quit()
         for i, htmlPage in enumerate(htmls):
             pageScrapper = DonationParser(htmlPage, i+1)
             pageScrapper.extract()
