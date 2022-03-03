@@ -1,7 +1,9 @@
 import logging
+import multiprocessing
+from multiprocessing.dummy import active_children
 from multiprocessing.pool import ThreadPool
 import os
-from multiprocessing import Pool, cpu_count, Process
+from multiprocessing import Pool, cpu_count, Process, Lock
 from threading import Thread
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait
 from concurrent import futures
@@ -50,6 +52,7 @@ class DonationScrapperRunner(object):
         self._races = races
         self._leaders = leaders
         self._processes = []
+        self.yearsQueue = self.years
 
     @property
     def years(self):
@@ -93,6 +96,30 @@ class DonationScrapperRunner(object):
         for p in self.processes:
             p.close()
 
+    def markComplete(self, year):
+        print(f"{year} is done...")
+
+    def runChunk(self, chunkSize):
+        pool = ThreadPool(chunkSize)
+        for year in self.popChunk(chunkSize):
+            yDone = pool.apply_async(self.process_data, args=(
+                year,), callback=self.markComplete)
+        pool.close()
+        pool.join()
+
+    def popChunk(self, chunkSize):
+        yearsPop = self.yearsQueue[:chunkSize]
+        self.yearsQueue = self.yearsQueue[chunkSize:]
+        return yearsPop
+
+    def singleProcessRun(self, delete=False):
+        for year in self.years:
+            self.process_data(year)
+        logging.info("concatenating data...")
+        DonationParser.concatOutputCsv(
+            self.outputPath, self.years, delete=delete)
+        print("Done...")
+
     def run(self, poolSize: int = None, delete=False):
         """
         run : start a pool of process where each year will be process sequentially as a seperate query.
@@ -110,8 +137,20 @@ class DonationScrapperRunner(object):
             poolSize = len(self.years)
         logging.info(f"starting pool with {poolSize} processes...")
 
-        with ProcessPoolExecutor(poolSize) as executor:
-            executor.map(self.process_data, self.years)
+        idx = 0
+        while idx < len(self.years):
+            self.runChunk(poolSize)
+            idx += poolSize
+        # idx = 0
+        # lock = Lock()
+        # while len(active_children()) < 6 and idx < len(self.years):
+        #     process = Process(target=self.process_data,
+        #                       args=(self.years[idx], lock))
+        #     process.start()
+        #     self.append(process)
+        #     idx += 1
+
+        # self.join()
 
         logging.info("concatenating data...")
         DonationParser.concatOutputCsv(
@@ -143,6 +182,8 @@ class DonationScrapperRunner(object):
             pageScrapper = DonationParser(htmlPage, i+1)
             pageScrapper.extract()
             pageScrapper.savePage(self.outputPath, year)
+
+        return year
 
 
 if __name__ == "__main__":

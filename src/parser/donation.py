@@ -409,6 +409,8 @@ class DonationParser(HtmlParser):
             dfs.append(df)
 
         all_df = pd.concat(dfs)
+        all_df.sort_values(by=["lastName"], inplace=True)
+        print(all_df.shape)
         all_df.to_csv(outputPath + "data.csv", index=False)
 
         if delete:

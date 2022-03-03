@@ -1,6 +1,8 @@
 # Base python package
 import logging
 from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait
+import time
 # Scrapping tools
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -29,6 +31,7 @@ class ChromeBasePage(object):
 
         self.driver = webdriver.Chrome(options=options)
         self.driver.implicitly_wait(10)
+        time.sleep(2)
 
     # def __del__(self):
     #     self.driver.close()
@@ -263,15 +266,20 @@ class SearchPageQcDonator(ChromeBasePage):
 
         self.click_on_research()
 
-    def loadNextPage(self):
+    def loadNextPage(self, pageUrl=None):
         """
          Call the driver to load the url with the next page value
 
          Warning will occure if too many process are behing used which could
          results in data loss.
         """
-        self.currentPage += 1
-        self.driver.get(SearchPageQcDonator.URL + f"?page={self.currentPage}")
+        if pageUrl is None:
+            self.currentPage += 1
+            self.driver.get(SearchPageQcDonator.URL +
+                            f"?page={self.currentPage}")
+        else:
+            self.driver.get(pageUrl)
+
         try:
             WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "tableau")))
@@ -294,7 +302,7 @@ class SearchPageQcDonator(ChromeBasePage):
                 "timeout exception while loading text with number of rows for process named : %s and page number : %s", str(self.name), str(self.currentPage))
 
         if numberOfRows is None:
-            raise ValueError
+            return
 
         try:
             driver = WebDriverWait(self.driver, 20)
@@ -308,8 +316,26 @@ class SearchPageQcDonator(ChromeBasePage):
                 "timeout exception while loading all rows for process named : %s and page number : %s", str(self.name), str(self.currentPage))
 
     def getSourcePage(self):
+
         self.waitForRows()
-        return self.driver.page_source
+        html = self.driver.page_source
+        return html
+
+    # def urlsToParse(self):
+    #     N = self.getNumberOfPage()
+    #     urls = [self.URL + f"?page={i}" for i in range(1, N+1)]
+    #     return urls
+
+    # def getAllHtmlPageMulti(self):
+    #     htmlList = []
+    #     urls = self.urlsToParse()
+    #     with ThreadPoolExecutor() as executor:
+    #         htmlList = list(executor.map(self.process_html, urls))
+    #     return htmlList
+
+    # def process_html(self, url):
+    #     self.loadNextPage(url)
+    #     return self.getSourcePage()
 
     def getAllHtmlPage(self):
         htmlList = []
@@ -338,9 +364,16 @@ if __name__ == "__main__":
 
     scrapper = SearchPageQcDonator("test")
     scrapper.query(years=["2022"])
-
+    scrapper.driver.name
+    urls = scrapper.urlsToParse()
+    print(urls[0])
+    print(urls[-1])
+    print(scrapper.getNumberOfPage())
+    start = time.time()
     htmls = scrapper.getAllHtmlPage()
-
+    end = time.time()
+    print(end - start)
+    print(len(htmls))
     input("PARSING DONE...")
     del(scrapper)
     input("QUITTING...")
