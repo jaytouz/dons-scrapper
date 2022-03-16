@@ -40,7 +40,8 @@ class ChromeBasePage(object):
 class SearchPageQcDonator(ChromeBasePage):
     """Creating a page to access the page of donators"""
 
-    URL = "https://www.electionsquebec.qc.ca/francais/provincial/financement-et-depenses-electorales/recherche-sur-les-donateurs.php"
+    #URL = "https://www.electionsquebec.qc.ca/francais/provincial/financement-et-depenses-electorales/recherche-sur-les-donateurs.php"
+    URL = "https://archive.electionsquebec.qc.ca/francais/provincial/financement-et-depenses-electorales/recherche-sur-les-donateurs-ns.php"
 
     def __init__(self, name):
         super().__init__()
@@ -316,26 +317,9 @@ class SearchPageQcDonator(ChromeBasePage):
                 "timeout exception while loading all rows for process named : %s and page number : %s", str(self.name), str(self.currentPage))
 
     def getSourcePage(self):
-
         self.waitForRows()
         html = self.driver.page_source
         return html
-
-    # def urlsToParse(self):
-    #     N = self.getNumberOfPage()
-    #     urls = [self.URL + f"?page={i}" for i in range(1, N+1)]
-    #     return urls
-
-    # def getAllHtmlPageMulti(self):
-    #     htmlList = []
-    #     urls = self.urlsToParse()
-    #     with ThreadPoolExecutor() as executor:
-    #         htmlList = list(executor.map(self.process_html, urls))
-    #     return htmlList
-
-    # def process_html(self, url):
-    #     self.loadNextPage(url)
-    #     return self.getSourcePage()
 
     def getAllHtmlPage(self):
         htmlList = []

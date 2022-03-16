@@ -64,7 +64,7 @@ class PoliticalPartiesValues(CheckboxValues):
     CPQ_PRE = "00089"
     CQ = "99237"  # Climat Québec (C.Q.)
     # Coalition avenir Québec (C.A.Q.) avant fusion avec l'A.D.Q.
-    CAQ_PRE = "00084"
+    CAQ_EFL = "00084"
     # Coalition avenir Québec - L'équipe François Legault(C.A.Q.- É.F.L.)
     CAQ = "00085"
     DSD = "00108"  # Droit des sans droits (D.S.D.)
