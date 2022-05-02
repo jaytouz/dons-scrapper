@@ -34,10 +34,3 @@ def main():
 if __name__ == "__main__":
     main()
 ```
-
-### WARNING
-
-Utiliser un trop grand poolSize peut entraîner des erreurs dans l'extraction des données. Vérifier le log, des avertissements s'afficheront dans le cas où certaines informations n'ont pas été bien collecter. Si c'est le cas, essayer le même query avec moins
-de process dans le pool.
-
-Valider également les résultats avec l'outil de recherche des donateurs Québécois, le nombre de résultat devrait être similaire à N + nbr page. (ils comptent le premier et dernier résultat en double à chaque page.)
